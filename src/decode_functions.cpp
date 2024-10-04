@@ -1,9 +1,11 @@
 #include "DecodeFunctions.h"
 
-json decode_bencoded_string(const std::string& encoded_value, int& start_position) {
-    size_t colon_index = encoded_value.find(':');
+json decode_bencoded_string(const std::string &encoded_value, int &start_position)
+{
+    size_t colon_index = encoded_value.find(':', start_position);
 
-    if(colon_index != std::string::npos) {
+    if (colon_index != std::string::npos)
+    {
         std::string number_string = encoded_value.substr(start_position, colon_index);
         int64_t number = std::atoll(number_string.c_str());
         std::string str = encoded_value.substr(colon_index + 1, number);
@@ -12,35 +14,41 @@ json decode_bencoded_string(const std::string& encoded_value, int& start_positio
 
         return json(str);
     }
-    else {
+    else
+    {
         throw std::runtime_error("Invalid encoded value: " + encoded_value);
     }
 }
 
-json decode_encoded_integer(const std::string& encoded_value, int& start_position) {
+json decode_encoded_integer(const std::string &encoded_value, int &start_position)
+{
     int end_position = encoded_value.find('e', start_position);
 
-    if(end_position != std::string::npos) {
+    if (end_position != std::string::npos)
+    {
         ++start_position;
 
         std::string number_string = encoded_value.substr(start_position, end_position - 1);
         int64_t number = std::atoll(number_string.c_str());
-        
+
         start_position = end_position + 1;
-        
+
         return json(number);
     }
-    else {
+    else
+    {
         throw std::runtime_error("Invalid encoded value: " + encoded_value);
     }
 }
 
-json decode_bencoded_list(const std::string& encoded_value, int& start_position) {
+json decode_bencoded_list(const std::string &encoded_value, int &start_position)
+{
     ++start_position;
 
     json result = json::array();
 
-    while(start_position < encoded_value.size() && encoded_value[start_position] != 'e') {
+    while (start_position < encoded_value.size() && encoded_value[start_position] != 'e')
+    {
         result += decode_bencoded_value(encoded_value, start_position);
     }
 
@@ -48,22 +56,62 @@ json decode_bencoded_list(const std::string& encoded_value, int& start_position)
     return result;
 }
 
-json decode_bencoded_value(const std::string& encoded_value, int& start_position) {
+json decode_bencoded_dictionary(const std::string &encoded_value, int &start_position)
+{
+    ++start_position;
+
+    json keys = json::array();
+    json values = json::array();
+
+    while (start_position < encoded_value.size() && encoded_value[start_position] != 'e')
+    {
+        keys += decode_bencoded_value(encoded_value, start_position);
+        values += decode_bencoded_value(encoded_value, start_position);
+    }
+
+    ++start_position;
+
+    json result = json::object();
+
+    if (keys.size() == values.size())
+    {
+        for (size_t i = 0; i < keys.size(); ++i)
+        {
+            result[keys[i]] = values[i];
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Invalid encoded value: " + encoded_value);
+    }
+    return result;
+}
+
+json decode_bencoded_value(const std::string &encoded_value, int &start_position)
+{
     int encoded_value_len = static_cast<int>(encoded_value.length());
 
-    if (std::isdigit(encoded_value[start_position])) {
+    if (std::isdigit(encoded_value[start_position]))
+    {
         // Example: "5:hello" -> "hello"
         return decode_bencoded_string(encoded_value, start_position);
     }
-    else if(encoded_value[start_position] == 'i') {
-        //Example "i42e" -> 42
+    else if (encoded_value[start_position] == 'i')
+    {
+        // Example "i42e" -> 42
         return decode_encoded_integer(encoded_value, start_position);
     }
-    else if(encoded_value[start_position] == 'l') {
-        //Example "l5:helloi52ee" -> ["hello", 52]
+    else if (encoded_value[start_position] == 'l')
+    {
+        // Example "l5:helloi52ee" -> ["hello", 52]
         return decode_bencoded_list(encoded_value, start_position);
     }
-     else {
+    else if (encoded_value[start_position] == 'd')
+    {
+        return decode_bencoded_dictionary(encoded_value, start_position);
+    }
+    else
+    {
         throw std::runtime_error("Unhandled encoded value: " + encoded_value);
     }
 }
