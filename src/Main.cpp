@@ -19,9 +19,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::string encoded_value = argv[2];
-        int start_position = 0;
-        json decoded_value = decode_bencoded_value(encoded_value, start_position);
-        std::cout << decoded_value.dump() << std::endl;
+        handle_decode_command(encoded_value);
     }
     else if(command == "info") {
         if (argc < 3) {
@@ -30,44 +28,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::string filename = argv[2];
-
-        try {
-            std::string encoded_value = read_torrent_file(filename);
-
-            if(encoded_value.empty()) {
-                std::cerr << "Error: Could not read or decode the file." << '\n';
-                return 1;
-            }
-
-            int start_position = 0;
-
-            json decoded_value = decode_bencoded_value(encoded_value, start_position);
-
-            if(decoded_value.contains("announce")) {
-                std::string tracker_url = decoded_value["announce"].get<std::string>();
-                std::cout << "Tracker URL: " << tracker_url << '\n';
-            }
-            else {
-                std::cerr << "Error: Missing 'announce' key in the torrent file" << '\n';
-                return 1;
-            }
-
-            if(decoded_value.contains("info")) {
-                json info_dict = decoded_value["info"];
-
-                if(info_dict.contains("length")) {
-                    int64_t file_length = info_dict["length"].get<int64_t>();
-                    std::cout << "Length: " << file_length << '\n';
-                }
-                else {
-                    std::cerr << "Error: Missing 'info' dictionary in torrent file." << '\n';
-                    return 1;
-                }
-            }
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << '\n';
-        }
+        handle_info_command(filename);
     }
     else {
         std::cerr << "unknown command: " << command << std::endl;
