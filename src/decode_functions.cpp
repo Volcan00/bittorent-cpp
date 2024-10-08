@@ -269,6 +269,48 @@ void handle_info_command(const std::string& filename) {
             std::string bencoded_info = bencode(info_dict);
             std::string info_hash = sha1(bencoded_info);
             std::cout << "Info Hash: " << info_hash << std::endl;
+
+            //Extract and display the piece length
+            if(info_dict.contains("piece length")) {
+                int64_t piece_length = info_dict["piece length"].get<std::int64_t>();
+                std::cout << "Piece Length: " << piece_length << std::endl;
+            }
+            else {
+                throw std::runtime_error("Error: Missing 'piece length' key in dictionary.");
+            }
+            
+            // Check if the "pieces" key exists, which contains concatenated SHA-1 hashes (20 bytes each) for the file's pieces.
+            if(info_dict.contains("pieces")) {
+                // Extract the "pieces" key, which is a concatenated string of 20-byte SHA-1 hashes
+                json pieces = info_dict["pieces"];
+
+                // Convert the json pieces to a string
+                std::string pieces_string = pieces.get<std::string>();
+
+                // Each piece hash is 20 bytes
+                int64_t pieces_size = pieces_string.size();
+                int64_t piece_size = 20;
+
+                std::cout << "Piece Hashes: " << std::endl;
+
+                // Iterate over the pieces_string, taking chunks of 20 bytes and converting to hexadecimal
+                for(int i = 0; i < pieces_size / piece_size; ++i) {
+                    // Extract the 20-byte SHA-1 hash for each piece
+                    std::string piece_hash = pieces_string.substr(i * piece_size, piece_size);
+
+                    // Convert the piece hash into hexadecimal format for output
+                    std::ostringstream oss;
+                    for (unsigned char c : piece_hash) {
+                        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+                    }
+
+                    // Print the hexadecimal hash of the piece
+                    std::cout << oss.str() << std::endl;
+                }
+            }
+            else {
+                throw std::runtime_error("Error: Missing 'pieces' key in dictionary.");
+            }
         }
         else {
             throw std::runtime_error("Error: Missing 'info' dictionary in torrent file.");
