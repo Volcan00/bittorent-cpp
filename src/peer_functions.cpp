@@ -46,12 +46,13 @@ static size_t write_callback(void* content, size_t size, size_t nmemb, std::stri
 }
 
 // Function to send the GET request to the tracker
-void send_tracker_get_request(const std::string& tracker_url, const std::string info_hash, const std::string& peer_id, int port, int64_t uploaded, 
+std::vector<std::string> get_peers(const std::string& tracker_url, const std::string info_hash, const std::string& peer_id, int port, int64_t uploaded, 
                               int64_t downloaded, int64_t left, bool compact) {
     // Initialize libcurl
     CURL *curl = curl_easy_init();
 
     std::string response; // String to strore response
+    std::vector<std::string> peers_arr = {}; // Array to store peers
 
     if(curl) {
         // Construct the URL with all the required parameters
@@ -87,8 +88,7 @@ void send_tracker_get_request(const std::string& tracker_url, const std::string 
                 std::string peers = decoded_response["peers"].get<std::string>();
 
                 if(peers.size() % 6 != 0) {
-                    std::cerr << "Error: Invalid peers string length." << std::endl;
-                    return;
+                    throw std::runtime_error("Error: Invalid peers string length.");
                 }
 
                     for(size_t i = 0; i < peers.size(); i += 6) {
@@ -97,9 +97,9 @@ void send_tracker_get_request(const std::string& tracker_url, const std::string 
                                          std::to_string(static_cast<uint8_t>(peers[i + 2])) + "." +
                                          std::to_string(static_cast<uint8_t>(peers[i + 3]));
 
-                        uint16_t port = (static_cast<uint8_t>(peers[i + 4]) << 8) | static_cast<uint8_t>(peers[i + 5]);
+                        std::string port = std::to_string((static_cast<uint8_t>(peers[i + 4]) << 8) | static_cast<uint8_t>(peers[i + 5]));
 
-                        std::cout << ip << ":" << port << std::endl;
+                        peers_arr.push_back(ip + ':' + port);
                     }
             }
             else {
@@ -111,5 +111,13 @@ void send_tracker_get_request(const std::string& tracker_url, const std::string 
     }
     else {
         std::cerr << "Failed to initialize CURL" << std::endl;
+    }
+
+    return peers_arr;
+}
+
+void print_peers(const std::vector<std::string>& peers) {
+    for(const auto& peer : peers) {
+        std::cout << peer << std::endl;
     }
 }

@@ -21,6 +21,11 @@ int main(int argc, char* argv[]) {
     std::string info_hash = "";
     int64_t piece_length;
     std::vector<std::string> pieces_hashes = {};
+    int port = 6881;
+    int64_t uploaded = 0;
+    int64_t downloaded = 0;
+    int64_t left = file_length;
+    bool compact = true;
 
 
     if (command == "decode") {
@@ -51,13 +56,9 @@ int main(int argc, char* argv[]) {
         std::string filename = argv[2];
         get_info(filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
 
-        int port = 6881;
-        int64_t uploaded = 0;
-        int64_t downloaded = 0;
-        int64_t left = file_length;
-        bool compact = true;
-
-        send_tracker_get_request(tracker_url, info_hash, peer_id, port, uploaded, downloaded, left, compact);
+        std::vector<std::string> peers = get_peers(tracker_url, info_hash, peer_id, port, uploaded, downloaded, file_length, compact);
+        
+        print_peers(peers);
     }
     else if(command == "handshake") {
         if(argc < 4) {
@@ -70,17 +71,30 @@ int main(int argc, char* argv[]) {
 
         get_info(filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
 
-        size_t colon_index = peer.find(':');
+        std::string ip;
+        int ip_port;
+        split_ip_and_port(peer, ip, ip_port);
 
-        if(colon_index == std::string::npos) {
-            std::cerr << "Invalid peer address format." << std::endl;
-            return 1;
+        complete_handshake(ip, ip_port, info_hash, peer_id, 0, piece_length);
+    }
+    else if(command == "download_piece") {
+        if(argc < 6) {
+            std::cerr << "Usage: " << argv[0] << " decode <encoded_value>" << std::endl;
+            return 1; 
         }
 
-        std::string ip = peer.substr(0, colon_index);
-        int port = std::stoi(peer.substr(colon_index + 1));
+        std::string filename = argv[4];
+        get_info(filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
 
-        complete_handshake(ip, port, info_hash, peer_id);
+        std::string peer = get_peers(tracker_url, info_hash, peer_id, port, uploaded, downloaded, file_length, compact)[0];
+
+        std::string ip;
+        int ip_port;
+        split_ip_and_port(peer, ip, ip_port);
+
+        int piece_index = std::stoi(argv[5]);
+
+        complete_handshake(ip, ip_port, info_hash, peer_id, piece_index, piece_length);
     }
     else {
         std::cerr << "unknown command: " << command << std::endl;
