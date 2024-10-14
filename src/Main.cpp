@@ -83,8 +83,9 @@ int main(int argc, char* argv[]) {
             return 1; 
         }
 
-        std::string filename = argv[4];
-        get_info(filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
+        std::string download_filename = argv[3];
+        std::string torrent_filename = argv[4];
+        get_info(torrent_filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
 
         std::string peer = get_peers(tracker_url, info_hash, peer_id, port, uploaded, downloaded, file_length, compact)[0];
 
@@ -94,7 +95,7 @@ int main(int argc, char* argv[]) {
 
         int piece_index = std::stoi(argv[5]);
 
-        complete_handshake(ip, ip_port, info_hash, peer_id, piece_index, piece_length);
+        complete_handshake(ip, ip_port, info_hash, peer_id, piece_index, piece_length, download_filename);
     }
     else {
         std::cerr << "unknown command: " << command << std::endl;
