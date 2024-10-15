@@ -29,7 +29,6 @@ ssize_t recv_all(int socket, char* buffer, size_t length) {
             break; // Connection closed
         }
         total_received += bytes_received;
-        std::cout << "Received " << bytes_received << " bytes, total received: " << total_received << "/" << length << std::endl;
     }
     return total_received; // Return the total bytes received
 }
@@ -87,7 +86,7 @@ bool send_handshake_message(int client_socket, const std::string &message) {
 }
 
 // Helper function to receive and process the handshake response
-bool receive_handshake_response(int client_socket, char* response_buffer, size_t buffer_size) {
+bool receive_handshake_response(int client_socket, char* response_buffer, size_t buffer_size, bool download) {
     ssize_t bytes_received = recv_all(client_socket, response_buffer, buffer_size);
     if (bytes_received == 68) {
         int length = static_cast<unsigned char>(response_buffer[0]);
@@ -98,7 +97,10 @@ bool receive_handshake_response(int client_socket, char* response_buffer, size_t
         for (unsigned char c : received_peer_id) {
             oss << std::hex << std::setw(2) << std::setfill('0') << (int)c;
         }
-        std::cout << "Peer ID: " << oss.str() << std::endl;
+
+        if(!download)
+            std::cout << "Peer ID: " << oss.str() << std::endl;
+
         return true;
     } else if (bytes_received == 0) {
         std::cerr << "Connection closed by the server." << std::endl;
@@ -107,6 +109,25 @@ bool receive_handshake_response(int client_socket, char* response_buffer, size_t
         perror("Failed to receive full handshake response");
         return false;
     }
+}
+
+// Function to perform the handshake with the peer
+bool perform_handshake(int client_socket, const std::string& info_hash, const std::string& peer_id, bool download) {
+    // Step 4: Prepare the handshake message
+    std::string handshake_message = prepare_handshake_message(info_hash, peer_id);
+
+    // Step 5: Send the handshake message
+    if (!send_handshake_message(client_socket, handshake_message)) {
+        return false; // Failure to send handshake message
+    }
+
+    // Step 6: Receive the handshake response
+    char response_buffer[68] = {0}; // Buffer for the response
+    if (!receive_handshake_response(client_socket, response_buffer, sizeof(response_buffer), download)) {
+        return false; // Failure to receive handshake response
+    }
+
+    return true; // Handshake successful
 }
 
 // Helper function to receive a peer message and extract message id and payload length
@@ -141,8 +162,7 @@ bool handle_bitfield_message(int client_socket) {
 
     // Check if it's a bitfield message (ID 5)
     if(message_id == 5) {
-        std::cout << "Received bitfield message, skipping payload..." << std::endl;
-        //skip the payload
+        // Skip the payload
         char* payload_buffer = new char[payload_length];
         ssize_t bytes_skipped = recv_all(client_socket, payload_buffer, payload_length);
         delete[] payload_buffer;
@@ -177,7 +197,6 @@ bool send_interested_message(int client_socket) {
         return false;
     }
 
-    std::cout << "Sent interested message to the peer." << std::endl;
     return true;
 }
 
@@ -195,12 +214,9 @@ bool wait_for_unchoke(int client_socket) {
 
         // Check if it's an unchoke message (ID 1)
         if(message_id == 1) {
-            std::cout << "Received unchoke message from the peer." << std::endl;
             return true;
         }
         else {
-            std::cout << "Received message ID: " << message_id << ", ignoring it and waiting for unchoke..." << std::endl;
-
             if(payload_length > 0) {
                 char* payload_buffer = new char[payload_length];
                 ssize_t bytes_skipped = recv_all(client_socket, payload_buffer, payload_length);
@@ -240,7 +256,6 @@ bool send_request_message(int client_socket, int piece_index, int block_offset, 
         return false;
     }
 
-    std::cout << "Sent request for piece index: " << piece_index << ", offset: " << block_offset << ", length: " << block_length << std::endl;
     return true;
 }
 
@@ -303,14 +318,79 @@ bool receive_piece_block(int client_socket, char* piece_buffer, int piece_index,
         return false;
     }
 
-    std::cout << "Received block for piece " << piece_index << ", offset " << block_offset 
-              << ", length " << block_length << std::endl;
     return true;
+}
+
+// Function to download a piece
+bool download_piece(int client_socket, int piece_index, int piece_length, const std::string& download_filename) {
+    // Step 7: Receive and handle the bitfield message
+    if (!handle_bitfield_message(client_socket)) {
+        return false; // Failure to handle bitfield message
+    }
+
+    // Step 8: Send the interested message
+    if (!send_interested_message(client_socket)) {
+        return false; // Failure to send interested message
+    }
+
+    // Step 9: Wait for the unchoke message
+    if (!wait_for_unchoke(client_socket)) {
+        return false; // Failure to wait for unchoke message
+    }
+
+    // Step 10: Break the piece into blocks and request them
+    const int BLOCK_SIZE = 16 * 1024; // 16 KiB block size
+    char* piece_buffer = new char[piece_length]; // Buffer to hold the entire piece
+    size_t total_received = 0; // Track total bytes received
+
+    for (int block_offset = 0; block_offset < piece_length; block_offset += BLOCK_SIZE) {
+        int block_length = std::min(BLOCK_SIZE, piece_length - block_offset);
+
+        // Send the request for this block
+        if (!send_request_message(client_socket, piece_index, block_offset, block_length)) {
+            delete[] piece_buffer; // Cleanup on failure
+            return false; // Failure to send request message
+        }
+
+        // Receive the block data
+        if (!receive_piece_block(client_socket, piece_buffer, piece_index, block_offset, block_length)) {
+            delete[] piece_buffer; // Cleanup on failure
+            return false; // Failure to receive piece block
+        }
+
+        // Check if the block was received as a 0-byte message indicating download completion
+        if (block_length == 0) {
+            break; // Exit the loop if the download is complete
+        }
+
+        // Update total bytes received
+        total_received += block_length;
+
+        // If we have received all data for the piece, break out of the loop
+        if (total_received >= piece_length) {
+            break; // All blocks for this piece have been received
+        }
+    }
+
+    // Step 11: Write the piece to disk
+    std::ofstream output_file(download_filename, std::ios::binary);
+    if (!output_file) {
+        std::cerr << "Failed to open output file." << std::endl;
+        delete[] piece_buffer; // Cleanup on failure
+        return false; // Failure to open output file
+    }
+
+    output_file.write(piece_buffer, piece_length);
+    output_file.close();
+
+    // Cleanup
+    delete[] piece_buffer; // Free the buffer
+    return true; // Download successful
 }
 
 
 // The main complete_handshake function
-void complete_handshake(const std::string& ip, int port, const std::string& info_hash, const std::string& peer_id, int piece_index, int piece_length, const std::string& download_filename) {
+void complete_download(const std::string& ip, int port, const std::string& info_hash, const std::string& peer_id, int piece_index, int piece_length, const std::string& download_filename, bool download) {
     // Step 1: Create a socket
     int client_socket = create_socket();
     if (client_socket == -1) return;
@@ -328,94 +408,21 @@ void complete_handshake(const std::string& ip, int port, const std::string& info
         return;
     }
 
-    // Step 4: Prepare the handshake message
-    std::string handshake_message = prepare_handshake_message(info_hash, peer_id);
-
-    // Step 5: Send the handshake message
-    if (!send_handshake_message(client_socket, handshake_message)) {
+    // Now perform the handshake
+    if (!perform_handshake(client_socket, info_hash, peer_id, download)) {
         close(client_socket);
         return;
     }
 
-    // Step 6: Receive the handshake response
-    char response_buffer[68] = {0}; // Buffer for the response
-    if (!receive_handshake_response(client_socket, response_buffer, sizeof(response_buffer))) {
-        close(client_socket);
-        return;
-    }
-
-    // Handshake is complete; now proceed to download a piece
-
-    //Step 7: Receive and handle the bitfield message
-    if(!handle_bitfield_message(client_socket)) {
-        close(client_socket);
-        return;
-    }
-
-    // Step 8: Send the interested message
-    if (!send_interested_message(client_socket)) {
-        close(client_socket);
-        return;
-    }
-
-    // Step 9: Wait for the unchoke message
-    if (!wait_for_unchoke(client_socket)) {
-        close(client_socket);
-        return;
-    }
-
-    // Step 10: Break the piece into blocks and request them
-    const int BLOCK_SIZE = 16 * 1024; // 16 KiB block size
-    char* piece_buffer = new char[piece_length]; // Buffer to hold the entire piece
-    size_t total_received = 0; // Track total bytes received
-
-    for (int block_offset = 0; block_offset < piece_length; block_offset += BLOCK_SIZE) {
-        int block_length = std::min(BLOCK_SIZE, piece_length - block_offset);
-
-        // Send the request for this block
-        if (!send_request_message(client_socket, piece_index, block_offset, block_length)) {
-            delete[] piece_buffer;
+    if(download) {
+        // Handshake is complete; now proceed to download a piece
+        if (!download_piece(client_socket, piece_index, piece_length, download_filename)) {
             close(client_socket);
             return;
         }
-
-        // Receive the block data
-        bool received = receive_piece_block(client_socket, piece_buffer, piece_index, block_offset, block_length);
-        if (!received) {
-            delete[] piece_buffer;
-            close(client_socket);
-            return;
-        }
-
-        // Check if the block was received as a 0-byte message indicating download completion
-        if (received && block_length == 0) {
-            std::cout << "Download completed for piece " << piece_index << "." << std::endl;
-            break; // Exit the loop if the download is complete
-        }
-
-        // Update total bytes received
-        total_received += block_length;
-
-        // If we have received all data for the piece, break out of the loop
-        if (total_received >= piece_length) {
-            break; // All blocks for this piece have been received
-        }
-    }
-
-    //Step 11: Write the piece to disk
-    std::ofstream output_file(download_filename, std::ios::binary);
-    if(!output_file) {
-        std::cerr << "Failed to open output file." << std::endl;
-        delete[] piece_buffer;
-        close(client_socket);
-        return;
-    }
-    output_file.write(piece_buffer, piece_length);
-    output_file.close();
-
-    std::cout << "Downloaded piece " << piece_index << " successfully." << std::endl;
+    }    
+    
 
     // Cleanup
-    delete[] piece_buffer;
     close(client_socket);
 }

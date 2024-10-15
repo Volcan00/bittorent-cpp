@@ -75,13 +75,15 @@ int main(int argc, char* argv[]) {
         int ip_port;
         split_ip_and_port(peer, ip, ip_port);
 
-        complete_handshake(ip, ip_port, info_hash, peer_id, 0, piece_length);
+        complete_download(ip, ip_port, info_hash, peer_id, 0, piece_length);
     }
     else if(command == "download_piece") {
         if(argc < 6) {
             std::cerr << "Usage: " << argv[0] << " decode <encoded_value>" << std::endl;
             return 1; 
         }
+
+        bool download = true;
 
         std::string download_filename = argv[3];
         std::string torrent_filename = argv[4];
@@ -95,7 +97,10 @@ int main(int argc, char* argv[]) {
 
         int piece_index = std::stoi(argv[5]);
 
-        complete_handshake(ip, ip_port, info_hash, peer_id, piece_index, piece_length, download_filename);
+        if(piece_index == file_length / piece_length)
+            piece_length = file_length - (piece_length * piece_index);
+
+        complete_download(ip, ip_port, info_hash, peer_id, piece_index, piece_length, download_filename, download);
     }
     else {
         std::cerr << "unknown command: " << command << std::endl;
