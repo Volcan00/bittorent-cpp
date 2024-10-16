@@ -68,7 +68,7 @@ std::string sha1(const std::string& input) {
     std::ostringstream hex_stream;
 
     // Convert each byte of the hash to hexadecimal
-    for(const auto& byte : hash) {
+    for(unsigned char& byte : hash) {
         hex_stream << std::setw(2) <<  std::setfill('0') << std::hex << static_cast<int>(byte);
     }
 

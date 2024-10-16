@@ -2,6 +2,8 @@
 #include "InfoFunctions.h"
 #include "PeerFunctions.h"
 #include "HandshakeFunctions.h"
+#include "DownloadPieceFunctions.h"
+#include "DownloadFileFunctions.h"
 
 int main(int argc, char* argv[]) {
     // Flush after every std::cout / std::cerr
@@ -75,15 +77,13 @@ int main(int argc, char* argv[]) {
         int ip_port;
         split_ip_and_port(peer, ip, ip_port);
 
-        complete_download(ip, ip_port, info_hash, peer_id, 0, piece_length);
+        complete_handshake(ip, ip_port, info_hash, peer_id);
     }
     else if(command == "download_piece") {
         if(argc < 6) {
             std::cerr << "Usage: " << argv[0] << " decode <encoded_value>" << std::endl;
             return 1; 
         }
-
-        bool download = true;
 
         std::string download_filename = argv[3];
         std::string torrent_filename = argv[4];
@@ -100,7 +100,26 @@ int main(int argc, char* argv[]) {
         if(piece_index == file_length / piece_length)
             piece_length = file_length - (piece_length * piece_index);
 
-        complete_download(ip, ip_port, info_hash, peer_id, piece_index, piece_length, download_filename, download);
+        complete_piece_download(ip, ip_port, info_hash, peer_id, piece_index, piece_length, download_filename);
+    }
+    else if (command == "download") {
+        if(argc < 5) {
+            std::cerr << "Usage: " << argv[0] << " decode <encoded_value>" << std::endl;
+            return 1;
+        }
+
+        std::string download_filename = argv[3];
+        std::cout << download_filename << std::endl;
+        std::string torrent_filename = argv[4];
+        get_info(torrent_filename, tracker_url, file_length, info_hash, piece_length, pieces_hashes);
+
+        std::string peer = get_peers(tracker_url, info_hash, peer_id, port, uploaded, downloaded, file_length, compact)[0];
+
+        std::string ip;
+        int ip_port;
+        split_ip_and_port(peer, ip, ip_port);
+
+        complete_file_download(ip, ip_port, info_hash, peer_id, pieces_hashes, piece_length, file_length, download_filename);
     }
     else {
         std::cerr << "unknown command: " << command << std::endl;
