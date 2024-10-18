@@ -101,23 +101,6 @@ bool wait_for_unchoke(int client_socket) {
     }
 }
 
-// bool handle_preparational_messages(int client_socket) {
-//     // Step 7: Receive and handle the bitfield message
-//     if (!handle_bitfield_message(client_socket)) {
-//         return false; // Failure to handle bitfield message
-//     }
-
-//     // Step 8: Send the interested message
-//     if (!send_interested_message(client_socket)) {
-//         return false; // Failure to send interested message
-//     }
-
-//     // Step 9: Wait for the unchoke message
-//     if (!wait_for_unchoke(client_socket)) {
-//         return false; // Failure to wait for unchoke message
-//     }
-// }
-
 // Helper function to send a request for a block of a piece
 bool send_request_message(int client_socket, int piece_index, int block_offset, int block_length) {
     char message[17]; // 4 bytes for length, 1 byte for message ID, and 12 bytes for the request
@@ -209,7 +192,7 @@ bool receive_piece_block(int client_socket, char* piece_buffer, int piece_index,
 }
 
 // Function to download a piece
-bool download_piece(int client_socket, int piece_index, int piece_length, const std::string& download_filename) {
+bool download_piece(int client_socket, int piece_index, int piece_length, const std::string& expected_hash, const std::string& download_filename) {
     // Step 10: Break the piece into blocks and request them
     const int BLOCK_SIZE = 16 * 1024; // 16 KiB block size
     char* piece_buffer = new char[piece_length]; // Buffer to hold the entire piece
@@ -217,31 +200,40 @@ bool download_piece(int client_socket, int piece_index, int piece_length, const 
 
     for (int block_offset = 0; block_offset < piece_length; block_offset += BLOCK_SIZE) {
         int block_length = std::min(BLOCK_SIZE, piece_length - block_offset);
-
         // Send the request for this block
         if (!send_request_message(client_socket, piece_index, block_offset, block_length)) {
             delete[] piece_buffer; // Cleanup on failure
             return false; // Failure to send request message
         }
-
         // Receive the block data
         if (!receive_piece_block(client_socket, piece_buffer, piece_index, block_offset, block_length)) {
             delete[] piece_buffer; // Cleanup on failure
             return false; // Failure to receive piece block
         }
-
         // Check if the block was received as a 0-byte message indicating download completion
         if (block_length == 0) {
             break; // Exit the loop if the download is complete
         }
-
         // Update total bytes received
         total_received += block_length;
-
         // If we have received all data for the piece, break out of the loop
         if (total_received >= piece_length) {
             break; // All blocks for this piece have been received
         }
+    }
+
+    std::string piece(piece_buffer, piece_length);
+
+    std::string calculated_hash = sha1(piece);
+
+    std::cout << "Expected hash: " << expected_hash << std::endl;
+    std::cout << "Calculated hash: " << calculated_hash << std::endl;
+
+    // Check if the calculated hash matches the expected hash
+    if (calculated_hash != expected_hash) {
+        std::cerr << "Hash mismatch! Downloaded piece is corrupted." << std::endl;
+        delete[] piece_buffer; // Cleanup on failure
+        return false; // Hash mismatch
     }
 
     // Step 11: Write the piece to disk
@@ -251,7 +243,6 @@ bool download_piece(int client_socket, int piece_index, int piece_length, const 
         delete[] piece_buffer; // Cleanup on failure
         return false; // Failure to open output file
     }
-
     output_file.write(piece_buffer, piece_length);
     output_file.close();
 
@@ -261,7 +252,7 @@ bool download_piece(int client_socket, int piece_index, int piece_length, const 
 }
 
 // The main complete_handshake function
-void complete_piece_download(const std::string& ip, int port, const std::string& info_hash, const std::string& peer_id, int piece_index, int piece_length, const std::string& download_filename, bool download) {
+void complete_piece_download(const std::string& ip, int port, const std::string& info_hash, const std::string& peer_id, int piece_index, int piece_length, const std::string& expected_hash, const std::string& download_filename, bool download) {
     // Establish the connection
     int client_socket = establish_connection(ip, port);
     if (client_socket == -1) return;  // Connection failed
@@ -288,7 +279,7 @@ void complete_piece_download(const std::string& ip, int port, const std::string&
     }
 
     // Handshake is complete; now proceed to download a piece
-    if (!download_piece(client_socket, piece_index, piece_length, download_filename)) {
+    if (!download_piece(client_socket, piece_index, piece_length, expected_hash, download_filename)) {
         close(client_socket);
         return;
     }  
