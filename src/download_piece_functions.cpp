@@ -192,7 +192,7 @@ bool receive_piece_block(int client_socket, char* piece_buffer, int piece_index,
 }
 
 // Function to download a piece
-bool download_piece(int client_socket, int piece_index, int piece_length, const std::string& expected_hash, const std::string& download_filename) {
+bool download_piece(int client_socket, int piece_index, int piece_length, const std::string& expected_hash, const std::string& download_filename, char* file_buffer, int64_t buffer_offset) {
     // Step 10: Break the piece into blocks and request them
     const int BLOCK_SIZE = 16 * 1024; // 16 KiB block size
     char* piece_buffer = new char[piece_length]; // Buffer to hold the entire piece
@@ -226,9 +226,6 @@ bool download_piece(int client_socket, int piece_index, int piece_length, const 
 
     std::string calculated_hash = sha1(piece);
 
-    std::cout << "Expected hash: " << expected_hash << std::endl;
-    std::cout << "Calculated hash: " << calculated_hash << std::endl;
-
     // Check if the calculated hash matches the expected hash
     if (calculated_hash != expected_hash) {
         std::cerr << "Hash mismatch! Downloaded piece is corrupted." << std::endl;
@@ -236,15 +233,20 @@ bool download_piece(int client_socket, int piece_index, int piece_length, const 
         return false; // Hash mismatch
     }
 
-    // Step 11: Write the piece to disk
-    std::ofstream output_file(download_filename, std::ios::binary);
-    if (!output_file) {
-        std::cerr << "Failed to open output file." << std::endl;
-        delete[] piece_buffer; // Cleanup on failure
-        return false; // Failure to open output file
+    if(file_buffer) {
+        std::memcpy(file_buffer + buffer_offset, piece_buffer, piece_length);
     }
-    output_file.write(piece_buffer, piece_length);
-    output_file.close();
+    else if(!download_filename.empty()) {
+        // Step 11: Write the piece to disk
+        std::ofstream output_file(download_filename, std::ios::binary);
+        if (!output_file) {
+            std::cerr << "Failed to open output file." << std::endl;
+            delete[] piece_buffer; // Cleanup on failure
+            return false; // Failure to open output file
+        }
+        output_file.write(piece_buffer, piece_length);
+        output_file.close();
+    }
 
     // Cleanup
     delete[] piece_buffer; // Free the buffer
